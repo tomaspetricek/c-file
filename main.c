@@ -30,15 +30,44 @@ bool file_open(file_t *file, const char *path, const mode_t mode)
 {
     static const char *modes[] = {"r", "w"};
     file->handle = fopen(path, modes[mode]);
-    return file->handle != NULL;
+    bool opened = file->handle != NULL;
+
+    if (!opened)
+    {
+        printf("ERROR: opening file: %s\n", strerror(errno));
+    }
+    return opened;
 }
 
-bool file_read_line(file_t *file, char *buffer, size_t buffer_capacity)
+bool file_read_line(file_t *file, char *buffer, size_t buffer_capacity,
+                    error_t *error)
 {
-    return fgets(buffer, buffer_capacity, file->handle) != NULL;
+    if ((fgets(buffer, buffer_capacity, file->handle) == NULL))
+    {
+        if (feof(file->handle))
+        {
+            printf("INFO: reached end of file\n");
+            (*error) = end_of_file_error;
+        }
+        else if (ferror(file->handle))
+        {
+            fprintf(stderr, "ERROR: reading line: %s\n", strerror(errno));
+            (*error) = reading_error;
+        }
+        return false;
+    }
+    return true;
 }
 
-bool file_close(file_t *file) { return fclose(file->handle) != EOF; }
+bool file_close(file_t *file)
+{
+    if (fclose(file->handle) == EOF)
+    {
+        fprintf(stderr, "ERROR: closing file: %s\n", strerror(errno));
+        return false;
+    }
+    return true;
+}
 
 typedef struct
 {
@@ -225,131 +254,94 @@ typedef struct
 bool csv_sample_reader_init(csv_sample_reader_t *reader,
                             const char *samples_path, char sep)
 {
-    bool opened = file_open(&reader->file, samples_path, read_mode);
-
-    if (!opened)
+    if (!file_open(&reader->file, samples_path, read_mode))
     {
-        fprintf(stderr, "ERROR: opening sample file: %s\n", strerror(errno));
-        return opened;
+        return false;
     }
     reader->sep = sep;
     char_span_init(&reader->line, reader->buffer, buffer_capacity);
-    return opened;
+    return true;
 }
 
-bool csv_sample_reader_read_header(csv_sample_reader_t *reader)
+bool csv_sample_reader_read_header(csv_sample_reader_t *reader,
+                                   error_t *error)
 {
-    bool read = file_read_line(&reader->file, reader->buffer, buffer_capacity);
-
-    if (!read)
-    {
-        if (feof(reader->file.handle))
-        {
-            printf("ERROR: empty sample file provided\n");
-        }
-        else if (ferror(reader->file.handle))
-        {
-            fprintf(stderr, "ERROR: reading header %s\n", strerror(errno));
-        }
-    }
-    return read;
+    return file_read_line(&reader->file, reader->buffer, buffer_capacity, error);
 }
 
 bool csv_sample_reader_read_sample(csv_sample_reader_t *reader,
                                    person_t *person, error_t *error)
 {
-    bool read = file_read_line(&reader->file, reader->buffer, buffer_capacity);
-
-    if (read)
+    if (!file_read_line(&reader->file, reader->buffer, buffer_capacity, error))
     {
-        printf("INFO: line read: %s", reader->buffer);
-
-        char_span_t value;
-        csv_line_parser parser;
-
-        int age, height;
-        name_t name;
-
-        csv_line_parser_init(&parser, &reader->line, reader->sep);
-
-        // parse name
-        if (!csv_line_parser_get_value(&parser, &value))
-        {
-            printf("ERROR: name is missing\n");
-            (*error) = parsing_error;
-            return false;
-        }
-        name_copy_from_span(&name, &value);
-
-        // parse age
-        if (!csv_line_parser_get_value(&parser, &value))
-        {
-            printf("ERROR: age is missing\n");
-            (*error) = parsing_error;
-            return false;
-        }
-        if (!parse_integer(&value, &age, error))
-        {
-            printf("ERROR: failed to parse age from: %.*s\n", value.size, value.data);
-            (*error) = parsing_error;
-            return false;
-        }
-
-        // parse height
-        if (!csv_line_parser_get_value(&parser, &value))
-        {
-            printf("ERROR: height is missing");
-            (*error) = parsing_error;
-            return false;
-        }
-        if (!parse_integer(&value, &height, error))
-        {
-            printf("ERROR: failed to parse height from: %.*s\n", value.size,
-                   value.data);
-            (*error) = parsing_error;
-            return false;
-        }
-
-        person_init(person, &name, age, height);
+        return false;
     }
-    else
+    printf("INFO: line read: %s", reader->buffer);
+
+    char_span_t value;
+    csv_line_parser parser;
+
+    int age, height;
+    name_t name;
+
+    csv_line_parser_init(&parser, &reader->line, reader->sep);
+
+    // parse name
+    if (!csv_line_parser_get_value(&parser, &value))
     {
-        if (feof(reader->file.handle))
-        {
-            printf("INFO: no more samples to read\n");
-            (*error) = end_of_file_error;
-        }
-        else if (ferror(reader->file.handle))
-        {
-            fprintf(stderr, "ERROR: reading samples: %s\n", strerror(errno));
-            (*error) = reading_error;
-        }
+        printf("ERROR: missing name\n");
+        (*error) = parsing_error;
+        return false;
     }
-    return read;
+    name_copy_from_span(&name, &value);
+
+    // parse age
+    if (!csv_line_parser_get_value(&parser, &value))
+    {
+        printf("ERROR: missing age\n");
+        (*error) = parsing_error;
+        return false;
+    }
+    if (!parse_integer(&value, &age, error))
+    {
+        printf("ERROR: parsing age from: %.*s\n", value.size, value.data);
+        (*error) = parsing_error;
+        return false;
+    }
+
+    // parse height
+    if (!csv_line_parser_get_value(&parser, &value))
+    {
+        printf("ERROR: missing height");
+        (*error) = parsing_error;
+        return false;
+    }
+    if (!parse_integer(&value, &height, error))
+    {
+        printf("ERROR: parsing height from: %.*s\n", value.size, value.data);
+        (*error) = parsing_error;
+        return false;
+    }
+
+    person_init(person, &name, age, height);
+    return true;
 }
 
 bool csv_sample_reader_deinit(csv_sample_reader_t *reader)
 {
-    bool closed = file_close(&reader->file);
-
-    if (!closed)
-    {
-        fprintf(stderr, "ERROR: closing sample file: %s\n", strerror(errno));
-    }
-    return closed;
+    return file_close(&reader->file);
 }
 
 int main()
 {
-    static const char *samples_path =
-        "/Users/tomaspetricek/Documents/repos/c-file/data.txt";
+    static const char *samples_path = "../data.txt";
     const char sep = ',';
     csv_sample_reader_t reader;
     error_t error = no_error;
 
     if (csv_sample_reader_init(&reader, samples_path, sep))
     {
-        if (csv_sample_reader_read_header(&reader))
+        if (csv_sample_reader_read_header(&reader, &error))
         {
             printf("INFO: csv header read\n");
 
@@ -373,15 +365,16 @@ int main()
                     if (error == end_of_file_error)
                     {
                         processing = false;
+                        printf("INFO: no more samples to read\n");
                     }
                     else if (error == parsing_error)
                     {
-                        printf("ERROR: failed to parse sample\n");
+                        printf("ERROR: parsing sample\n");
                     }
                     else if (error == reading_error)
                     {
                         processing = false;
-                        printf("FATAL: failed to read sample\n");
+                        printf("FATAL: reading sample\n");
                     }
                     else
                     {
@@ -405,7 +398,15 @@ int main()
         }
         else
         {
-            printf("FATAL: cannot read header\n");
+            if (error == end_of_file_error)
+            {
+                printf("ERROR: empty sample file provided\n");
+            }
+            else if (error == reading_error)
+            {
+                fprintf(stderr, "ERROR: reading header%s\n", strerror(errno));
+            }
+            printf("FATAL: unable to read header\n");
         }
     }
     else
