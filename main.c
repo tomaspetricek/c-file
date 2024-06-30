@@ -62,18 +62,23 @@ void csv_line_parser_init(csv_line_parser *parser, const char_span_t *line, char
     char_span_copy(&parser->line, line);
 }
 
-void csv_line_parser_get_value(csv_line_parser *parser, char_span_t *value)
+bool csv_line_parser_get_value(csv_line_parser *parser, char_span_t *value)
 {
+    if ((parser->first == parser->line.size) || (parser->line.data[parser->first] == '\n'))
+    {
+        char_span_init(value, parser->line.data + parser->first, 0);
+        return false;
+    }
     for (int last = parser->first; last < parser->line.size; ++last)
     {
         if (parser->line.data[last] == parser->sep || parser->line.data[last] == '\n')
         {
             char_span_init(value, parser->line.data + parser->first, last - parser->first);
             parser->first = last + 1;
-            return;
+            return true;
         }
     }
-    assert(1 != 1);
+    return false;
 }
 
 static const int name_capacity = 50;
@@ -123,17 +128,29 @@ int to_integer(const char c)
     return c - '0';
 }
 
-int parse_integer(const char_span_t *token)
+bool is_digit(const char c)
+{
+    return ('0' <= c) && (c <= '9');
+}
+
+bool parse_integer(const char_span_t *token, int *num)
 {
     static const int digit_count = 10;
-    int num = 0;
 
+    if (token->size == 0)
+    {
+        return false;
+    }
     for (int i = 0; i < token->size; ++i)
     {
-        num *= digit_count;
-        num += to_integer(token->data[i]);
+        if (!is_digit(token->data[i]))
+        {
+            return false;
+        }
+        (*num) *= digit_count;
+        (*num) += to_integer(token->data[i]);
     }
-    return num;
+    return true;
 }
 
 typedef struct
@@ -243,15 +260,38 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
 
         csv_line_parser_init(&parser, &reader->line, reader->sep);
 
-        csv_line_parser_get_value(&parser, &value);
+        // parse name
+        if (!csv_line_parser_get_value(&parser, &value))
+        {
+            printf("ERROR: name is missing");
+            return false;
+        }
         name_copy_from_span(&name, &value);
 
-        csv_line_parser_get_value(&parser, &value);
-        age = parse_integer(&value);
+        // parse age
+        if (!csv_line_parser_get_value(&parser, &value))
+        {
+            printf("ERROR: age is missing");
+            return false;
+        }
+        if (!parse_integer(&value, &age))
+        {
+            printf("ERROR: failed to parse age from: %.*s\n", value.size, value.data);
+            return false;
+        }
 
-        csv_line_parser_get_value(&parser, &value);
-        height = parse_integer(&value);
-
+        // parse height
+        if (!csv_line_parser_get_value(&parser, &value))
+        {
+            printf("ERROR: height is missing");
+            return false;
+        }
+        if (!parse_integer(&value, &height))
+        {
+            printf("ERROR: failed to parse height from: %.*s\n", value.size, value.data);
+            return false;
+        }
+        
         person_init(person, &name, age, height);
     }
     else
