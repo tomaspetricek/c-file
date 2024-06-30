@@ -141,6 +141,7 @@ bool parse_integer(const char_span_t *token, int *num)
     {
         return false;
     }
+    *num = 0;
     for (int i = 0; i < token->size; ++i)
     {
         if (!is_digit(token->data[i]))
