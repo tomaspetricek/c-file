@@ -189,7 +189,7 @@ const int buffer_capacity = 256;
 
 typedef struct
 {
-    file_t samples;
+    file_t file;
     char buffer[buffer_capacity];
     char sep;
     char_span_t line;
@@ -197,7 +197,7 @@ typedef struct
 
 bool csv_sample_reader_init(csv_sample_reader_t *reader, const char *samples_path, char sep)
 {
-    bool opened = file_open(&reader->samples, samples_path, read_mode);
+    bool opened = file_open(&reader->file, samples_path, read_mode);
 
     if (!opened)
     {
@@ -211,15 +211,15 @@ bool csv_sample_reader_init(csv_sample_reader_t *reader, const char *samples_pat
 
 bool csv_sample_reader_read_header(csv_sample_reader_t *reader)
 {
-    bool read = file_read_line(&reader->samples, reader->buffer, buffer_capacity);
+    bool read = file_read_line(&reader->file, reader->buffer, buffer_capacity);
 
     if (!read)
     {
-        if (feof(reader->samples.handle))
+        if (feof(reader->file.handle))
         {
             printf("ERROR: empty sample file provided\n");
         }
-        else if (ferror(reader->samples.handle))
+        else if (ferror(reader->file.handle))
         {
             fprintf(stderr, "ERROR: reading header %s\n", strerror(errno));
         }
@@ -229,7 +229,7 @@ bool csv_sample_reader_read_header(csv_sample_reader_t *reader)
 
 bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person)
 {
-    bool read = file_read_line(&reader->samples, reader->buffer, buffer_capacity);
+    bool read = file_read_line(&reader->file, reader->buffer, buffer_capacity);
 
     if (read)
     {
@@ -256,11 +256,11 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
     }
     else
     {
-        if (feof(reader->samples.handle))
+        if (feof(reader->file.handle))
         {
             printf("INFO: no more samples to read\n");
         }
-        else if (ferror(reader->samples.handle))
+        else if (ferror(reader->file.handle))
         {
             fprintf(stderr, "ERROR: reading samples: %s\n", strerror(errno));
         }
@@ -268,8 +268,15 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
     return read;
 }
 
-void csv_sample_reader_deinit(csv_sample_reader_t *reader)
+bool csv_sample_reader_deinit(csv_sample_reader_t *reader)
 {
+    bool closed = file_close(&reader->file);
+
+    if (!closed)
+    {
+        fprintf(stderr, "ERROR: closing sample file: %s\n", strerror(errno));
+    }
+    return closed;
 }
 
 int main()
@@ -303,14 +310,19 @@ int main()
                 printf("INFO: statistics\n");
                 person_statistics_print(&stats);
             }
+
+            if (!csv_sample_reader_deinit(&reader))
+            {
+                printf("ERROR: failed to deinitialize reader");
+            }
         }
         else
         {
-            printf("FAILED: cannot read header\n");
+            printf("FATAL: cannot read header\n");
         }
     }
     else
     {
-        printf("FAILED: cannot read sample\n");
+        printf("FATAL: cannot read samples\n");
     }
 }
