@@ -185,110 +185,132 @@ void person_statistics_print(const person_statistics_t *stats)
     printf("height: min: %d, max: %d, mean: %.2f\n", stats->min_height, stats->max_height, ((float)stats->sum_height) / stats->count);
 }
 
+const int buffer_capacity = 256;
+
+typedef struct
+{
+    file_t samples;
+    char buffer[buffer_capacity];
+    char sep;
+    char_span_t line;
+} csv_sample_reader_t;
+
+bool csv_sample_reader_init(csv_sample_reader_t *reader, const char *samples_path, char sep)
+{
+    bool opened = file_open(&reader->samples, samples_path, read_mode);
+
+    if (!opened)
+    {
+        fprintf(stderr, "ERROR: opening sample file: %s\n", strerror(errno));
+        return opened;
+    }
+    reader->sep = sep;
+    char_span_init(&reader->line, reader->buffer, buffer_capacity);
+    return opened;
+}
+
+bool csv_sample_reader_read_header(csv_sample_reader_t *reader)
+{
+    bool read = file_read_line(&reader->samples, reader->buffer, buffer_capacity);
+
+    if (!read)
+    {
+        if (feof(reader->samples.handle))
+        {
+            printf("ERROR: empty sample file provided\n");
+        }
+        else if (ferror(reader->samples.handle))
+        {
+            fprintf(stderr, "ERROR: reading header %s\n", strerror(errno));
+        }
+    }
+    return read;
+}
+
+bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person)
+{
+    bool read = file_read_line(&reader->samples, reader->buffer, buffer_capacity);
+
+    if (read)
+    {
+        printf("buffer: %s", reader->buffer);
+
+        char_span_t value;
+        csv_line_parser parser;
+
+        int age, height;
+        name_t name;
+
+        csv_line_parser_init(&parser, &reader->line, reader->sep);
+
+        csv_line_parser_get_value(&parser, &value);
+        name_copy_from_span(&name, &value);
+
+        csv_line_parser_get_value(&parser, &value);
+        age = parse_integer(&value);
+
+        csv_line_parser_get_value(&parser, &value);
+        height = parse_integer(&value);
+
+        person_init(person, &name, age, height);
+    }
+    else
+    {
+        if (feof(reader->samples.handle))
+        {
+            printf("INFO: no more samples to read\n");
+        }
+        else if (ferror(reader->samples.handle))
+        {
+            fprintf(stderr, "ERROR: reading samples: %s\n", strerror(errno));
+        }
+    }
+    return read;
+}
+
+void csv_sample_reader_deinit(csv_sample_reader_t *reader)
+{
+}
+
 int main()
 {
     static const char *samples_path =
         "/Users/tomaspetricek/Documents/repos/c-file/data.txt";
-    file_t samples;
+    const char sep = ',';
+    csv_sample_reader_t reader;
 
-    if (file_open(&samples, samples_path, read_mode))
+    if (csv_sample_reader_init(&reader, samples_path, sep))
     {
-        const int buffer_capacity = 256;
-        char buffer[buffer_capacity];
-
-        bool csv_header_read = false;
-
-        if (file_read_line(&samples, buffer, buffer_capacity))
+        if (csv_sample_reader_read_header(&reader))
         {
-            csv_header_read = true;
             printf("INFO: csv header read\n");
-        }
-        else
-        {
-            if (feof(samples.handle))
-            {
-                printf("ERROR: empty sample file provided\n");
-            }
-            else if (ferror(samples.handle))
-            {
-                fprintf(stderr, "ERROR: reading header %s\n", strerror(errno));
-            }
-        }
-
-        if (csv_header_read)
-        {
-            char_span_t line;
-            char_span_init(&line, buffer, buffer_capacity);
-            int samples_processed = 0;
-            bool processing = true;
-
-            const char sep = ',';
-            char_span_t value;
-            csv_line_parser parser;
-
-            int age, height;
-            name_t name;
-            person_t person;
 
             person_statistics_t stats;
             person_statistics_init(&stats);
+            person_t person;
 
             printf("INFO: started processing\n");
 
-            while (processing)
+            while (csv_sample_reader_read_sample(&reader, &person))
             {
-                if (file_read_line(&samples, buffer, buffer_capacity))
-                {
-                    printf("buffer: %s", buffer);
-                    samples_processed++;
-
-                    csv_line_parser_init(&parser, &line, sep);
-
-                    csv_line_parser_get_value(&parser, &value);
-                    name_copy_from_span(&name, &value);
-
-                    csv_line_parser_get_value(&parser, &value);
-                    age = parse_integer(&value);
-
-                    csv_line_parser_get_value(&parser, &value);
-                    height = parse_integer(&value);
-
-                    person_init(&person, &name, age, height);
-                    person_print(&person);
-
-                    person_statistics_update(&stats, &person);
-                }
-                else
-                {
-                    processing = false;
-
-                    if (feof(samples.handle))
-                    {
-                        printf("INFO: no more samples to read\n");
-                    }
-                    else if (ferror(samples.handle))
-                    {
-                        fprintf(stderr, "ERROR: reading samples: %s\n", strerror(errno));
-                    }
-                }
+                person_print(&person);
+                person_statistics_update(&stats, &person);
             }
             printf("INFO: finished processing\n");
-            printf("INFO: processed %d samples\n", samples_processed);
 
-            if (samples_processed)
+            if (stats.count)
             {
                 printf("INFO: statistics\n");
                 person_statistics_print(&stats);
             }
         }
-
-        if (!file_close(&samples))
+        else
         {
-            fprintf(stderr, "ERROR: closing sample file: %s\n", strerror(errno));
+            printf("FAILED: cannot read header\n");
         }
     }
     else
     {
-        fprintf(stderr, "ERROR: opening sample file: %s\n", strerror(errno));
+        printf("FAILED: cannot read sample\n");
     }
 }
