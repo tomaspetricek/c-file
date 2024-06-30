@@ -1,3 +1,21 @@
 name,age,height (cm)
 Tomas,25,187
 John,40,172
+Alice,30,165
+Bob,22,180
+Eve,35,170
+Mike,28,175
+Sara,26,160
+Tom,33,182
+Anna,24,168
+James,38,173
+Laura,29,167
+Peter,31,174
+Sophia,27,162
+Daniel,45,178
+Emma,32,163
+David,36,177
+Isabella,23,169
+Mark,34,176
+Olivia,28,164
+Luke,37,171

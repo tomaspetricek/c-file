@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <assert.h>
+#include <limits.h>
 
 typedef struct
 {
@@ -135,6 +136,55 @@ int parse_integer(const char_span_t *token)
     return num;
 }
 
+typedef struct
+{
+    int min_age;
+    int max_age;
+    int sum_age;
+    int min_height;
+    int max_height;
+    int sum_height;
+    int count;
+} person_statistics_t;
+
+int int_min(int first, int second)
+{
+    return (first < second) ? first : second;
+}
+
+int int_max(int first, int second)
+{
+    return (first > second) ? first : second;
+}
+
+void person_statistics_init(person_statistics_t *stats)
+{
+    stats->min_age = INT_MAX;
+    stats->max_age = INT_MIN;
+    stats->sum_age = 0;
+    stats->min_height = INT_MAX;
+    stats->max_height = INT_MIN;
+    stats->sum_height = 0;
+    stats->count = 0;
+}
+
+void person_statistics_update(person_statistics_t *stats, const person_t *person)
+{
+    stats->min_age = int_min(stats->min_age, person->age);
+    stats->max_age = int_max(stats->max_age, person->age);
+    stats->sum_age += person->age;
+    stats->min_height = int_min(stats->min_height, person->height);
+    stats->max_height = int_max(stats->max_height, person->height);
+    stats->sum_height += person->height;
+    stats->count++;
+}
+
+void person_statistics_print(const person_statistics_t *stats)
+{
+    printf("age: min: %d, max: %d, mean: %.2f\n", stats->min_age, stats->max_age, ((float)stats->sum_age) / stats->count);
+    printf("height: min: %d, max: %d, mean: %.2f\n", stats->min_height, stats->max_height, ((float)stats->sum_height) / stats->count);
+}
+
 int main()
 {
     static const char *samples_path =
@@ -180,6 +230,9 @@ int main()
             name_t name;
             person_t person;
 
+            person_statistics_t stats;
+            person_statistics_init(&stats);
+
             printf("INFO: started processing\n");
 
             while (processing)
@@ -203,7 +256,7 @@ int main()
                     person_init(&person, &name, age, height);
                     person_print(&person);
 
-                    printf("\n");
+                    person_statistics_update(&stats, &person);
                 }
                 else
                 {
@@ -221,6 +274,12 @@ int main()
             }
             printf("INFO: finished processing\n");
             printf("INFO: processed %d samples\n", samples_processed);
+
+            if (samples_processed)
+            {
+                printf("INFO: statistics\n");
+                person_statistics_print(&stats);
+            }
         }
 
         if (!file_close(&samples))
