@@ -1,9 +1,19 @@
+#include <assert.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include <assert.h>
-#include <limits.h>
+
+typedef enum
+{
+    no_error,
+    parsing_error,
+    end_of_file_error,
+    reading_error,
+    empty_buffer_error,
+    invalid_value_error,
+} error_t;
 
 typedef struct
 {
@@ -55,7 +65,8 @@ typedef struct
     char_span_t line;
 } csv_line_parser;
 
-void csv_line_parser_init(csv_line_parser *parser, const char_span_t *line, char sep)
+void csv_line_parser_init(csv_line_parser *parser, const char_span_t *line,
+                          char sep)
 {
     parser->first = 0;
     parser->sep = sep;
@@ -64,16 +75,20 @@ void csv_line_parser_init(csv_line_parser *parser, const char_span_t *line, char
 
 bool csv_line_parser_get_value(csv_line_parser *parser, char_span_t *value)
 {
-    if ((parser->first == parser->line.size) || (parser->line.data[parser->first] == '\n'))
+    if ((parser->first == parser->line.size) ||
+        (parser->line.data[parser->first] == parser->sep) ||
+        (parser->line.data[parser->first] == '\n'))
     {
         char_span_init(value, parser->line.data + parser->first, 0);
         return false;
     }
     for (int last = parser->first; last < parser->line.size; ++last)
     {
-        if (parser->line.data[last] == parser->sep || parser->line.data[last] == '\n')
+        if (parser->line.data[last] == parser->sep ||
+            parser->line.data[last] == '\n')
         {
-            char_span_init(value, parser->line.data + parser->first, last - parser->first);
+            char_span_init(value, parser->line.data + parser->first,
+                           last - parser->first);
             parser->first = last + 1;
             return true;
         }
@@ -120,25 +135,21 @@ void person_init(person_t *person, name_t *name, int age, int height)
 
 void person_print(const person_t *person)
 {
-    printf("name: %s, age: %d, height: %d\n", person->name, person->age, person->height);
+    printf("name: %s, age: %d, height: %d\n", person->name, person->age,
+           person->height);
 }
 
-int to_integer(const char c)
-{
-    return c - '0';
-}
+int to_integer(const char c) { return c - '0'; }
 
-bool is_digit(const char c)
-{
-    return ('0' <= c) && (c <= '9');
-}
+bool is_digit(const char c) { return ('0' <= c) && (c <= '9'); }
 
-bool parse_integer(const char_span_t *token, int *num)
+bool parse_integer(const char_span_t *token, int *num, error_t *error)
 {
     static const int digit_count = 10;
 
     if (token->size == 0)
     {
+        (*error) = empty_buffer_error;
         return false;
     }
     *num = 0;
@@ -146,6 +157,7 @@ bool parse_integer(const char_span_t *token, int *num)
     {
         if (!is_digit(token->data[i]))
         {
+            (*error) = invalid_value_error;
             return false;
         }
         (*num) *= digit_count;
@@ -165,15 +177,9 @@ typedef struct
     int count;
 } person_statistics_t;
 
-int int_min(int first, int second)
-{
-    return (first < second) ? first : second;
-}
+int int_min(int first, int second) { return (first < second) ? first : second; }
 
-int int_max(int first, int second)
-{
-    return (first > second) ? first : second;
-}
+int int_max(int first, int second) { return (first > second) ? first : second; }
 
 void person_statistics_init(person_statistics_t *stats)
 {
@@ -186,7 +192,8 @@ void person_statistics_init(person_statistics_t *stats)
     stats->count = 0;
 }
 
-void person_statistics_update(person_statistics_t *stats, const person_t *person)
+void person_statistics_update(person_statistics_t *stats,
+                              const person_t *person)
 {
     stats->min_age = int_min(stats->min_age, person->age);
     stats->max_age = int_max(stats->max_age, person->age);
@@ -199,8 +206,10 @@ void person_statistics_update(person_statistics_t *stats, const person_t *person
 
 void person_statistics_print(const person_statistics_t *stats)
 {
-    printf("age: min: %d, max: %d, mean: %.2f\n", stats->min_age, stats->max_age, ((float)stats->sum_age) / stats->count);
-    printf("height: min: %d, max: %d, mean: %.2f\n", stats->min_height, stats->max_height, ((float)stats->sum_height) / stats->count);
+    printf("age: min: %d, max: %d, mean: %.2f\n", stats->min_age, stats->max_age,
+           ((float)stats->sum_age) / stats->count);
+    printf("height: min: %d, max: %d, mean: %.2f\n", stats->min_height,
+           stats->max_height, ((float)stats->sum_height) / stats->count);
 }
 
 const int buffer_capacity = 256;
@@ -213,7 +222,8 @@ typedef struct
     char_span_t line;
 } csv_sample_reader_t;
 
-bool csv_sample_reader_init(csv_sample_reader_t *reader, const char *samples_path, char sep)
+bool csv_sample_reader_init(csv_sample_reader_t *reader,
+                            const char *samples_path, char sep)
 {
     bool opened = file_open(&reader->file, samples_path, read_mode);
 
@@ -245,13 +255,14 @@ bool csv_sample_reader_read_header(csv_sample_reader_t *reader)
     return read;
 }
 
-bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person)
+bool csv_sample_reader_read_sample(csv_sample_reader_t *reader,
+                                   person_t *person, error_t *error)
 {
     bool read = file_read_line(&reader->file, reader->buffer, buffer_capacity);
 
     if (read)
     {
-        printf("buffer: %s", reader->buffer);
+        printf("INFO: line read: %s", reader->buffer);
 
         char_span_t value;
         csv_line_parser parser;
@@ -264,7 +275,8 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
         // parse name
         if (!csv_line_parser_get_value(&parser, &value))
         {
-            printf("ERROR: name is missing");
+            printf("ERROR: name is missing\n");
+            (*error) = parsing_error;
             return false;
         }
         name_copy_from_span(&name, &value);
@@ -272,12 +284,14 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
         // parse age
         if (!csv_line_parser_get_value(&parser, &value))
         {
-            printf("ERROR: age is missing");
+            printf("ERROR: age is missing\n");
+            (*error) = parsing_error;
             return false;
         }
-        if (!parse_integer(&value, &age))
+        if (!parse_integer(&value, &age, error))
         {
             printf("ERROR: failed to parse age from: %.*s\n", value.size, value.data);
+            (*error) = parsing_error;
             return false;
         }
 
@@ -285,14 +299,17 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
         if (!csv_line_parser_get_value(&parser, &value))
         {
             printf("ERROR: height is missing");
+            (*error) = parsing_error;
             return false;
         }
-        if (!parse_integer(&value, &height))
+        if (!parse_integer(&value, &height, error))
         {
-            printf("ERROR: failed to parse height from: %.*s\n", value.size, value.data);
+            printf("ERROR: failed to parse height from: %.*s\n", value.size,
+                   value.data);
+            (*error) = parsing_error;
             return false;
         }
-        
+
         person_init(person, &name, age, height);
     }
     else
@@ -300,10 +317,12 @@ bool csv_sample_reader_read_sample(csv_sample_reader_t *reader, person_t *person
         if (feof(reader->file.handle))
         {
             printf("INFO: no more samples to read\n");
+            (*error) = end_of_file_error;
         }
         else if (ferror(reader->file.handle))
         {
             fprintf(stderr, "ERROR: reading samples: %s\n", strerror(errno));
+            (*error) = reading_error;
         }
     }
     return read;
@@ -326,6 +345,7 @@ int main()
         "/Users/tomaspetricek/Documents/repos/c-file/data.txt";
     const char sep = ',';
     csv_sample_reader_t reader;
+    error_t error = no_error;
 
     if (csv_sample_reader_init(&reader, samples_path, sep))
     {
@@ -336,13 +356,39 @@ int main()
             person_statistics_t stats;
             person_statistics_init(&stats);
             person_t person;
+            bool processing = true;
 
             printf("INFO: started processing\n");
 
-            while (csv_sample_reader_read_sample(&reader, &person))
+            while (processing)
             {
-                person_print(&person);
-                person_statistics_update(&stats, &person);
+                if (csv_sample_reader_read_sample(&reader, &person, &error))
+                {
+                    printf("INFO: sample read: ");
+                    person_print(&person);
+                    person_statistics_update(&stats, &person);
+                }
+                else
+                {
+                    if (error == end_of_file_error)
+                    {
+                        processing = false;
+                    }
+                    else if (error == parsing_error)
+                    {
+                        printf("ERROR: failed to parse sample\n");
+                    }
+                    else if (error == reading_error)
+                    {
+                        processing = false;
+                        printf("FATAL: failed to read sample\n");
+                    }
+                    else
+                    {
+                        processing = false;
+                        printf("FATAL: unknown error when reading samples\n");
+                    }
+                }
             }
             printf("INFO: finished processing\n");
 
